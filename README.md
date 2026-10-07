@@ -1,8 +1,8 @@
 # ds_example
 
-A minimal Nintendo DS cart: a moving bar on the top screen, a live key readout on
-the bottom. Small enough to read in one sitting, and to copy when starting
-something new.
+A minimal Nintendo DS cart: a moving bar on the top screen, a live key readout,
+and a blip on every button. Small enough to read in one sitting, and to copy when
+starting something new.
 
 ## Use it
 
@@ -25,11 +25,16 @@ loader arguments, no firmware, no assets.
 | screen | expect |
 | --- | --- |
 | top | a blue field with a **yellow bar moving across it**, left to right, forever |
-| bottom | `DS example`, then `UP 0  DOWN 0 …` and `A 0  B 0 …` |
+| bottom | `DS example`, then `UP 0  DOWN 0 …`, `A 0  B 0 …`, and `blips 0  last -` |
 
-Press an arrow key (or a D-pad, if you have a controller mapped) and the numbers
-on the bottom screen flip to 1. If they never change, the keys are not being
-scanned — see below. START exits.
+Press a button and two things happen: the matching number flips to 1, and you
+hear a **short blip whose pitch identifies the button** — A is the lowest of the
+face buttons, R the highest. The `blips` counter goes up and `last` names the
+button that fired. Press several at once and you get a chord, because each blip
+takes one of the 16 sound channels.
+
+If the numbers never change, the keys are not being scanned — see below. START
+exits.
 
 ## The files
 
@@ -40,7 +45,6 @@ scanned — see below. START exits.
 | `Dockerfile` | the toolchain ([BlocksDS](https://blocksds.skylyrac.net/)), so nothing is installed on your machine |
 | `build.sh` / `run.sh` | the two commands above |
 | `retroarch.cfg` | one line that turns off pause-on-unfocus, passed to RetroArch |
-
 | `README.md` | this |
 
 ## What's actually in a DS program
@@ -53,10 +57,11 @@ Three things. The Makefile is mostly boilerplate around them:
 | **Two CPUs** | A DS has an ARM9 (your code runs there) and an ARM7 (sound, wifi, keypad hardware). Every cart ships a small ARM7 binary too — that's `ARM7ELF` in the Makefile, and `arm7_minimal.elf` is the stock one. |
 | **The `.nds` container** | `ndstool` wraps both binaries, a header, and optionally an icon and banner. The header needs a game code and a title, and **the title is capped at 12 characters**. |
 
-## Two things that bite everyone
+## Three things that bite everyone
 
-Both are one line, and both fail as a *black screen* rather than an error, so
-they are worth knowing before you spend an evening on them.
+Each is one line. The first two fail as a *black screen* rather than an error,
+and the third as silence, so they are worth knowing before you spend an evening
+on them.
 
 **`scanKeys()` refreshes the key state.** `keysHeld()` does not read hardware; it
 returns what was last scanned. Forget the scan and the values never change, so
@@ -78,6 +83,21 @@ videoSetMode(MODE_FB0);         // top screen shows a framebuffer
 vramSetBankA(VRAM_A_LCD);       // and here is its memory
 ```
 
+**Sound needs `soundEnable()`.** Nothing plays until it is called once at
+startup, and the failure is silence, which is harder to diagnose than black:
+
+```c
+soundEnable();                  // once, before anything plays
+soundPlaySample(tone, SoundFormat_16Bit, sizeof(tone),
+                rate, 100, 64, false, 0);
+```
+
+`dataSize` is in **bytes**, not samples — passing a sample count gives you half a
+blip. The ARM7 binary also has to carry the sound driver: the stock
+`arm7_minimal.elf` does, which is why this example makes noise in melonDS and on
+hardware, but that Makefile line is what decides it. The `arm7_maxmod*.elf`
+variants are for [maxmod](https://blocksds.skylyrac.net/) instead.
+
 ## Presenting pixels
 
 This example draws into a plain array and moves it with `dmaCopy` — simple, and
@@ -98,6 +118,10 @@ Use `printf`, not `iprintf`: BlocksDS is picolibc, and `iprintf` does not exist.
   other.o`); the `%.o: %.c` rule picks them up.
 * **Assets:** `ndstool` attaches a 32x32 icon and a banner with `-b`. Without
   them the cart shows a generic icon in the DS menu.
+* **Different sounds:** `initTone()` builds one buffer, and every button plays it
+  at a different rate. Change the waveform there, or the pitch table beside it.
+  For tracked music rather than blips you want maxmod, which needs the matching
+  ARM7 binary.
 * **Exit back to a loader:** on a DSpico, Pico Launcher passes the file it opened
   in `argv[1]` — useful if you are writing something that opens ROMs.
 * **Anything else:** the [libnds examples](https://github.com/blocksds/libnds)
