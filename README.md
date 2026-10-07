@@ -12,9 +12,10 @@ starting something new.
 ./run.sh shot.png     # or capture a screenshot and exit
 ```
 
-Nothing to install by hand. `build.sh` builds the toolchain image on first use
-(Docker caches it, so later builds are instant) and `run.sh` fetches the emulator
-core. Both work on macOS and Linux. `./build.sh clean` removes the build products.
+Nothing to install by hand. `build.sh` pulls the official BlocksDS image on first
+use (Docker caches it, so later builds are instant) and `run.sh` fetches the
+emulator core. Both work on macOS and Linux. `./build.sh clean` removes the build
+products.
 
 On hardware, copy `hello.nds` to a DS flashcart and pick it from the menu — on a
 DSpico that means dropping it on the card and launching it in Pico Launcher. No
@@ -40,21 +41,20 @@ exits.
 
 | | |
 | --- | --- |
-| `main.c` | the whole program, ~80 lines of commented C |
-| `Makefile` | compile, link, and package into a `.nds` |
-| `Dockerfile` | the toolchain ([BlocksDS](https://blocksds.skylyrac.net/)), so nothing is installed on your machine |
-| `build.sh` / `run.sh` | the two commands above |
+| `main.c` | the whole program, ~140 lines of commented C |
+| `build.sh` | the build: one compile, one link, one `ndstool` call, inside the BlocksDS image |
+| `run.sh` | play it, or capture a screenshot |
 | `retroarch.cfg` | one line that turns off pause-on-unfocus, passed to RetroArch |
 | `README.md` | this |
 
 ## What's actually in a DS program
 
-Three things. The Makefile is mostly boilerplate around them:
+Three things. `build.sh` is a page of boilerplate around them:
 
 | | |
 | --- | --- |
-| **The toolchain** | BlocksDS brings an ARM cross-compiler, `libnds`, and `ndstool`, which packs an ELF into a `.nds`. |
-| **Two CPUs** | A DS has an ARM9 (your code runs there) and an ARM7 (sound, wifi, keypad hardware). Every cart ships a small ARM7 binary too — that's `ARM7ELF` in the Makefile, and `arm7_minimal.elf` is the stock one. |
+| **The toolchain** | BlocksDS brings an ARM cross-compiler, `libnds`, and `ndstool`, which packs an ELF into a `.nds`. It ships as a Docker image, so nothing is installed on your machine. |
+| **Two CPUs** | A DS has an ARM9 (your code runs there) and an ARM7 (sound, wifi, keypad hardware). Every cart ships a small ARM7 binary too — that is the `arm7_minimal.elf` named in `build.sh`. |
 | **The `.nds` container** | `ndstool` wraps both binaries, a header, and optionally an icon and banner. The header needs a game code and a title, and **the title is capped at 12 characters**. |
 
 ## Three things that bite everyone
@@ -95,7 +95,7 @@ soundPlaySample(tone, SoundFormat_16Bit, sizeof(tone),
 `dataSize` is in **bytes**, not samples — passing a sample count gives you half a
 blip. The ARM7 binary also has to carry the sound driver: the stock
 `arm7_minimal.elf` does, which is why this example makes noise in melonDS and on
-hardware, but that Makefile line is what decides it. The `arm7_maxmod*.elf`
+hardware, but that line in `build.sh` is what decides it. The `arm7_maxmod*.elf`
 variants are for [maxmod](https://blocksds.skylyrac.net/) instead.
 
 ## Presenting pixels
@@ -114,8 +114,8 @@ Use `printf`, not `iprintf`: BlocksDS is picolibc, and `iprintf` does not exist.
 
 ## Extending it
 
-* **More source files:** add them to `OBJS` in the Makefile (`OBJS := main.o
-  other.o`); the `%.o: %.c` rule picks them up.
+* **More source files:** drop them in the directory. `build.sh` compiles every
+  `.c` and links the lot, so nothing needs editing.
 * **Assets:** `ndstool` attaches a 32x32 icon and a banner with `-b`. Without
   them the cart shows a generic icon in the DS menu.
 * **Different sounds:** `initTone()` builds one buffer, and every button plays it
@@ -130,14 +130,20 @@ Use `printf`, not `iprintf`: BlocksDS is picolibc, and `iprintf` does not exist.
 
 ## Appendix: doing it by hand
 
-What the scripts run, if you want to see it. All paths absolute, because the
-common failure is running from a directory that does not hold the core —
-RetroArch then finds nothing and exits with no useful message.
+The run side, spelled out. `build.sh` is the build side and is readable as it
+stands. All paths here are absolute, because the common failure is running from a
+directory that does not hold the core — RetroArch then finds nothing and exits
+with no useful message.
 
 ```sh
-# the toolchain image, built once
-docker build -t ds-example .
-docker run --rm -v "$PWD:/work" ds-example make
+# The toolchain is one image, no Dockerfile:
+docker pull skylyrac/blocksds:slim-latest
+
+# It ships make, but the compiler and ndstool are not on PATH, so build.sh names
+# them in full: $WONDERFUL_TOOLCHAIN/toolchain/gcc-arm-none-eabi/bin and
+# $BLOCKSDS/tools/ndstool. The --user and -e HOME/TMPDIR matter too: without them
+# the output files come back owned by root, and the image's defaults (/root)
+# cannot be written by your uid.
 
 # RetroArch and the melonDS core. run.sh works out the platform and, more subtly,
 # the architecture of your RetroArch *binary* - which is not always the host's.
