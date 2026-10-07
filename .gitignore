@@ -1,0 +1,9 @@
+*.o
+*.elf
+*.nds
+*.map
+*.zip
+*.dylib
+*.so
+ds-test/
+*.png
